@@ -1,6 +1,7 @@
 package xiaojinzi.view.scaleSlideMenu;
 
 import android.content.Context;
+import android.graphics.Point;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -27,9 +28,9 @@ import xiaojinzi.view.common.RectEntity;
  *         第一个孩子是菜单,默认是左边
  *         第二个是主界面
  *         3.不是两个孩子都会报错
- *
+ *         <p>
  *         1.用到的类:RectEntity
- *                    保存位置信息
+ *         保存位置信息
  */
 public class ScaleSlideMenu extends ViewGroup {
 
@@ -239,34 +240,101 @@ public class ScaleSlideMenu extends ViewGroup {
         }
     }
 
+    /**
+     * 是否拦截孩子的事件
+     */
+    private boolean isInterceptTouchEvent = false;
+
+    /**
+     * 是否已经判断过事件属于谁了
+     */
+    private boolean isAdjustEvent = false;
+
+    /**
+     * 手指接触屏幕的时候的坐标
+     */
+    private Point downPoint = new Point();
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
+
+        //获取事件的类型
         int action = ev.getAction();
+
+        //筛选事件
         switch (action & MotionEvent.ACTION_MASK) {
 
-            case MotionEvent.ACTION_DOWN: //按下
+            case MotionEvent.ACTION_DOWN: //按下的情况下
 
-                //获取到按下的时候的相对于屏幕的横坐标x
-                int x = (int) ev.getX();
+                //不管拦截不拦截,先保存按下时候的坐标
+                downPoint.x = (int) ev.getX();
+                downPoint.y = (int) ev.getY();
 
                 //拦截菜单打开的情况下主界面的事件
                 if (isMenuOpen) {
+
                     //菜单的位置参数对象
                     RectEntity menuRect = rectEntities.get(0);
 
-                    if (menuGravity == MENU_GRAVITY_LEFT) { //如果菜单在左边
-                        if (x > Math.abs(menuRect.leftX)) { //满足说明了点击的是主界面的区域
-                            return true;
+                    //如果判断出来按下的时候坐标是菜单的区域,则直接拦截,这个事件不传递给孩子
+                    if (menuGravity == MENU_GRAVITY_LEFT) {
+                        if (downPoint.x > Math.abs(menuRect.leftX)) {
+                            isAdjustEvent = true;
+                            isInterceptTouchEvent = true;
                         }
-                    } else { //菜单在右边
-                        if (x < (mWidth - (menuRect.rightX - menuRect.leftX))) {
-                            return true;
+                    } else {
+                        if (downPoint.x < (mWidth - (menuRect.rightX - menuRect.leftX))) {
+                            isAdjustEvent = true;
+                            isInterceptTouchEvent = true;
+                        }
+                    }
+                }else{
+
+                }
+                break;
+            case MotionEvent.ACTION_MOVE: // 移动
+
+                if (isAdjustEvent) { //如果已经判断过事件了
+                    return isInterceptTouchEvent;
+                }
+
+                //记录下当前移动后的点
+                finalX = (int) ev.getX();
+                finalY = (int) ev.getY();
+
+                //菜单没有打开
+                if (!isMenuOpen) {
+                    //计算坐标之间的差值
+                    int dx = Math.abs(finalX - downPoint.x);
+                    int dy = Math.abs(finalY - downPoint.y);
+
+                    if (dx > dy) { //说明水平方向的滑动多余竖直方向的,需要拦截
+                        if (menuGravity == MENU_GRAVITY_LEFT) { //如果菜单在左边
+                            if (downPoint.x < mWidth * slidePercent) {
+                                isAdjustEvent = true;
+                                isInterceptTouchEvent = true;
+                                currentX = downPoint.x;
+                                currentY = downPoint.y;
+                            }
+                        } else { //菜单在右边
+                            if (downPoint.x > (mWidth - mWidth * slidePercent)) {
+                                isAdjustEvent = true;
+                                isInterceptTouchEvent = true;
+                                currentX = downPoint.x;
+                                currentY = downPoint.y;
+                            }
                         }
                     }
                 }
+
+                break;
+            case MotionEvent.ACTION_UP: // 抬起,还原一些变量
+                isAdjustEvent = false;
+                isInterceptTouchEvent = false;
+                break;
         }
 
-        return super.onInterceptTouchEvent(ev);
+        return isInterceptTouchEvent;
     }
 
     /**
@@ -309,11 +377,6 @@ public class ScaleSlideMenu extends ViewGroup {
     private boolean isMove;
 
     /**
-     * 是不是侧滑的事件
-     */
-    private boolean isMyEvent = false;
-
-    /**
      * 是否正在滚动
      */
     private boolean isScrolling;
@@ -330,23 +393,8 @@ public class ScaleSlideMenu extends ViewGroup {
         //获取事件的类型(动作)
         int action = e.getAction();
 
-        //如果按下的,进行有效点的判读,只有接近边缘小于某一个百分比,才可以滑出菜单
-        if ((action & MotionEvent.ACTION_MASK) == MotionEvent.ACTION_DOWN) {
-            //拿到按下的时候的横左边
-            float x = e.getX();
-            if (menuGravity == MENU_GRAVITY_LEFT) { //如果菜单在左边
-                if (x / ((Number) mWidth).floatValue() < slidePercent) { //如果距离边界的百分比小于设置的百分比
-                    isMyEvent = true;
-                }
-            } else {
-                if ((mWidth - x) / ((Number) mWidth).floatValue() < slidePercent) { //如果距离边界的百分比小于设置的百分比
-                    isMyEvent = true;
-                }
-            }
-        }
-
         //如果不需要侧滑出菜单,并且菜单是关闭状态
-        if (!isMyEvent && !isMenuOpen && !isScrolling) {
+        if (isScrolling) {
             return false;
         }
 
@@ -361,9 +409,6 @@ public class ScaleSlideMenu extends ViewGroup {
                 //保存按下的时候的坐标
                 currentX = (int) e.getX();
                 currentY = (int) e.getY();
-
-                scroller.setFinalX(currentX);
-                scroller.abortAnimation();
 
                 break;
 
@@ -424,7 +469,8 @@ public class ScaleSlideMenu extends ViewGroup {
 
                 vt.clear();
                 isMove = false;
-                isMyEvent = false;
+                isAdjustEvent = false;
+                isInterceptTouchEvent = false;
                 break;
         }
 
@@ -533,6 +579,8 @@ public class ScaleSlideMenu extends ViewGroup {
             float percent = ((Number) Math.abs(getScrollX())).floatValue() / ((Number) Math.abs(rectEntities.get(0).leftX)).floatValue();
             getChildAt(1).setScaleX(1f - 0.4f * (percent));
             getChildAt(1).setScaleY(1f - 0.4f * (percent));
+            getChildAt(0).setScaleX(0.6f + 0.4f * (percent));
+            getChildAt(0).setScaleY(0.6f + 0.4f * (percent));
         }
     }
 
